@@ -21,7 +21,14 @@ class Enemy(initialX: Float, initialY: Float, val enemyType: String = "thug") {
     val attackBox = RectF()
 
     init {
+        applyDifficultyScaling()
         updateBounds()
+    }
+
+    fun applyDifficultyScaling(baseMaxHealth: Int = 60) {
+        val multiplier = SettingsManager.currentDifficulty.damageMultiplier
+        maxHealth = (baseMaxHealth * multiplier).toInt().coerceAtLeast(40)
+        health = maxHealth
     }
 
     fun update(playerX: Float, screenWidth: Float) {
@@ -35,13 +42,17 @@ class Enemy(initialX: Float, initialY: Float, val enemyType: String = "thug") {
         if (kotlin.math.abs(distanceToPlayer) > 45f) {
             currentState = EnemyState.CHASING
             isFacingRight = distanceToPlayer > 0
-            val speed = if (isFacingRight) 2.2f else -2.2f
+            val speedMultiplier = when(SettingsManager.currentDifficulty) {
+                Difficulty.EASY -> 1.8f
+                Difficulty.NORMAL -> 2.2f
+                Difficulty.HARD -> 2.8f
+            }
+            val speed = if (isFacingRight) speedMultiplier else -speedMultiplier
             x += speed
         } else {
             currentState = EnemyState.ATTACKING
         }
 
-        // Ekran sınırlarında tutma
         if (x < 0f) x = 0f
         if (x > screenWidth - (spriteBitmap.width * scale)) {
             x = screenWidth - (spriteBitmap.width * scale)
