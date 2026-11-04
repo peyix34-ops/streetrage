@@ -14,18 +14,25 @@ class Player(initialX: Float, initialY: Float) {
     var currentState = PlayerState.IDLE
     var isFacingRight = true
 
-    // Çizim ölçeği (Piksel sanatını ekranda büyütmek için)
     private val scale = 6f
     private val idleBitmap: Bitmap = PixelSpriteGenerator.createHeroIdleBitmap()
     
-    // Çarpışma kutuları (Hitbox & Hurtbox)
     val hurtBox = RectF()
+    val attackBox = RectF()
+
+    private var actionTimer = 0
 
     init {
         updateBounds()
     }
 
     fun update() {
+        if (currentState == PlayerState.PUNCH || currentState == PlayerState.KICK) {
+            actionTimer--
+            if (actionTimer <= 0) {
+                currentState = PlayerState.IDLE
+            }
+        }
         updateBounds()
     }
 
@@ -33,10 +40,33 @@ class Player(initialX: Float, initialY: Float) {
         val width = idleBitmap.width * scale
         val height = idleBitmap.height * scale
         hurtBox.set(x, y, x + width, y + height)
+
+        if (currentState == PlayerState.PUNCH || currentState == PlayerState.KICK) {
+            if (isFacingRight) {
+                attackBox.set(x + width, y + height * 0.3f, x + width + 40f, y + height * 0.7f)
+            } else {
+                attackBox.set(x - 40f, y + height * 0.3f, x, y + height * 0.7f)
+            }
+        } else {
+            attackBox.set(0f, 0f, 0f, 0f)
+        }
+    }
+
+    fun punch() {
+        if (currentState != PlayerState.PUNCH && currentState != PlayerState.KICK) {
+            currentState = PlayerState.PUNCH
+            actionTimer = 15
+        }
+    }
+
+    fun kick() {
+        if (currentState != PlayerState.PUNCH && currentState != PlayerState.KICK) {
+            currentState = PlayerState.KICK
+            actionTimer = 20
+        }
     }
 
     fun draw(canvas: Canvas, paint: Paint) {
-        // Nearest Neighbor için filter'ı kapatıyoruz (keskin piksel görünümü için)
         paint.isAntiAlias = false
         paint.isFilterBitmap = false
 
@@ -45,7 +75,6 @@ class Player(initialX: Float, initialY: Float) {
 
         canvas.save()
         if (!isFacingRight) {
-            // Yön sola bakıyorsa sprite'ı yatayda ters çevir
             canvas.scale(-1f, 1f, x + destWidth / 2, y + destHeight / 2)
         }
 
@@ -55,8 +84,9 @@ class Player(initialX: Float, initialY: Float) {
     }
 
     fun move(dx: Float, screenWidth: Float) {
+        if (currentState == PlayerState.PUNCH || currentState == PlayerState.KICK) return
+        
         x += dx
-        // Ekran sınırlarında kalmasını sağla
         if (x < 0f) x = 0f
         if (x > screenWidth - (idleBitmap.width * scale)) {
             x = screenWidth - (idleBitmap.width * scale)
