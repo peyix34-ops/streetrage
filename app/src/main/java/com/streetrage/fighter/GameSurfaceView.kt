@@ -13,12 +13,14 @@ class GameSurfaceView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
     private val gameLoop: GameLoop
     private var currentState = GameState.MAIN_MENU
 
-    // Boyutlar
     private var screenWidth = 1.0f
     private var screenHeight = 1.0f
 
-    // Boyama araçları
     private val paint = Paint()
+
+    // Oyun Bileşenleri
+    private lateinit var player: Player
+    private val touchController = TouchController()
 
     init {
         holder.addCallback(this)
@@ -35,6 +37,9 @@ class GameSurfaceView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
         screenWidth = width.toFloat()
         screenHeight = height.toFloat()
+
+        // Oyuncuyu zemin seviyesine konumlandır
+        player = Player(100f, screenHeight * 0.48f)
     }
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
@@ -43,18 +48,25 @@ class GameSurfaceView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
 
     fun update() {
         when (currentState) {
-            GameState.MAIN_MENU -> {
-                // Menü mantıksal güncellemeleri
-            }
+            GameState.MAIN_MENU -> {}
             GameState.PLAYING -> {
-                // Oyun içi mantıksal güncellemeler (Karakter, Düşman vb.)
+                var dx = 0f
+                if (touchController.isLeftPressed) {
+                    dx = -6f
+                    player.isFacingRight = false
+                }
+                if (touchController.isRightPressed) {
+                    dx = 6f
+                    player.isFacingRight = true
+                }
+                player.move(dx, screenWidth)
+                player.update()
             }
             else -> {}
         }
     }
 
     fun drawGame(canvas: Canvas) {
-        // Ekranı temizle (Koyu arka plan - Gece/Sokak temasına hazırlık)
         canvas.drawColor(Color.rgb(20, 20, 30))
 
         when (currentState) {
@@ -65,38 +77,51 @@ class GameSurfaceView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
     }
 
     private fun drawMainMenu(canvas: Canvas) {
-        // Çevresel Atmosfer / Başlık Çizimi
         paint.color = Color.rgb(240, 200, 50)
-        paint.textSize = 64f
-        paint.isAntiAlias = false // Piksel hissini korumak için
-        canvas.drawText("STREET RAGE: FIGHTER", 100f, 150f, paint)
+        paint.textSize = 56f
+        paint.isAntiAlias = false
+        canvas.drawText("STREET RAGE: FIGHTER", 80f, 130f, paint)
 
-        // Menü Butonları Tasarımı
-        paint.textSize = 36f
+        paint.textSize = 32f
         paint.color = Color.WHITE
-        canvas.drawText("1. HİKÂYE / BAŞLA", 100f, 280f, paint)
-        canvas.drawText("2. AYARLAR", 100f, 360f, paint)
-        canvas.drawText("3. ÇIKIŞ", 100f, 440f, paint)
+        canvas.drawText("1. HİKÂYE / BAŞLA", 80f, 240f, paint)
+        canvas.drawText("2. AYARLAR", 80f, 310f, paint)
+        canvas.drawText("3. ÇIKIŞ", 80f, 380f, paint)
 
-        paint.textSize = 24f
+        paint.textSize = 20f
         paint.color = Color.GRAY
-        canvas.drawText("Ekran dokunarak oyunu başlatın.", 100f, screenHeight - 60f, paint)
+        canvas.drawText("Oyuna başlamak için ekrana dokunun.", 80f, screenHeight - 40f, paint)
     }
 
     private fun drawGameplay(canvas: Canvas) {
+        // Arka plan atmosferi
+        BackgroundRenderer.drawBackAlleysBackground(canvas, screenWidth, screenHeight, paint)
+
+        // Oyuncu karakteri
+        player.draw(canvas, paint)
+
+        // Dokunmatik Kontroller (HUD)
+        touchController.draw(canvas, paint)
+
+        // Oyuncu Sağlık Göstergesi (Can Barı)
+        paint.color = Color.RED
+        canvas.drawRect(40f, 30f, 240f, 55f, paint)
+        paint.color = Color.GREEN
+        val currentHealthWidth = 200f * (player.health.toFloat() / player.maxHealth)
+        canvas.drawRect(40f, 30f, 40f + currentHealthWidth, 55f, paint)
+
         paint.color = Color.WHITE
-        paint.textSize = 40f
-        canvas.drawText("Bölüm 1: Arka Sokaklar (Yükleniyor...)", 100f, 200f, paint)
+        paint.textSize = 18f
+        canvas.drawText("BÖLÜM 1: ARKA SOKAKLAR", 40f, 22f, paint)
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (event.action == MotionEvent.ACTION_DOWN) {
-            if (currentState == GameState.MAIN_MENU) {
-                // Menü dokunmasıyla oyunu başlatalım
+        if (currentState == GameState.MAIN_MENU) {
+            if (event.action == MotionEvent.ACTION_DOWN) {
                 currentState = GameState.PLAYING
-            } else if (currentState == GameState.PLAYING) {
-                // İleride buraya dokunmatik kontroller eklenecek
             }
+        } else if (currentState == GameState.PLAYING) {
+            touchController.handleTouchEvent(event, screenWidth, screenHeight)
         }
         return true
     }
