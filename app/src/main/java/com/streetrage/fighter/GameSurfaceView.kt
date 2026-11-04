@@ -45,8 +45,7 @@ class GameSurfaceView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
     private fun initNewChapter() {
         val chapter = ChapterManager.getCurrentChapter()
         enemy = Enemy(screenWidth - 300f, screenHeight * 0.48f)
-        enemy.maxHealth = chapter.enemyMaxHealth
-        enemy.health = chapter.enemyMaxHealth
+        enemy.applyDifficultyScaling(chapter.enemyMaxHealth)
     }
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
@@ -55,7 +54,7 @@ class GameSurfaceView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
 
     fun update() {
         when (currentState) {
-            GameState.MAIN_MENU -> {}
+            GameState.MAIN_MENU, GameState.SETTINGS -> {}
             GameState.PLAYING -> {
                 if (touchController.isPunchPressed) {
                     player.punch()
@@ -79,14 +78,12 @@ class GameSurfaceView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
 
                 enemy.update(player.x, screenWidth)
 
-                // Oyuncunun düşmana vuruşu
                 if ((player.currentState == PlayerState.PUNCH || player.currentState == PlayerState.KICK) &&
                     player.attackBox.intersect(enemy.hurtBox)) {
                     if (enemy.health > 0) {
                         enemy.health -= if (player.currentState == PlayerState.PUNCH) 5 else 8
                         if (enemy.health <= 0) {
                             enemy.health = 0
-                            // Düşman yenildi, sonraki bölüme geç veya oyun bitti (10. bölümse final)
                             if (ChapterManager.currentChapterIndex == ChapterManager.chapters.size - 1) {
                                 currentState = GameState.VICTORY
                             } else {
@@ -100,9 +97,13 @@ class GameSurfaceView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
                     }
                 }
 
-                // Düşmanın oyuncuya vuruşu
                 if (enemy.currentState == EnemyState.ATTACKING && enemy.attackBox.intersect(player.hurtBox)) {
-                    player.health -= 1
+                    val damage = when(SettingsManager.currentDifficulty) {
+                        Difficulty.EASY -> 1
+                        Difficulty.NORMAL -> 1
+                        Difficulty.HARD -> 2
+                    }
+                    player.health -= damage
                     if (player.health < 0) {
                         player.health = 0
                         currentState = GameState.GAME_OVER
@@ -110,7 +111,6 @@ class GameSurfaceView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
                 }
             }
             GameState.GAME_OVER, GameState.VICTORY -> {}
-            else -> {}
         }
     }
 
@@ -119,10 +119,10 @@ class GameSurfaceView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
 
         when (currentState) {
             GameState.MAIN_MENU -> drawMainMenu(canvas)
+            GameState.SETTINGS -> drawSettingsMenu(canvas)
             GameState.PLAYING -> drawGameplay(canvas)
             GameState.GAME_OVER -> drawGameOver(canvas)
             GameState.VICTORY -> drawVictory(canvas)
-            else -> drawMainMenu(canvas)
         }
     }
 
@@ -140,7 +140,23 @@ class GameSurfaceView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
 
         paint.textSize = 20f
         paint.color = Color.GRAY
-        canvas.drawText("Oyuna başlamak için ekrana dokunun.", 80f, screenHeight - 40f, paint)
+        canvas.drawText("Seçenekler için ilgili yazıya dokunun.", 80f, screenHeight - 40f, paint)
+    }
+
+    private fun drawSettingsMenu(canvas: Canvas) {
+        paint.color = Color.rgb(240, 200, 50)
+        paint.textSize = 48f
+        paint.isAntiAlias = false
+        canvas.drawText("OYUN AYARLARI", 80f, 100f, paint)
+
+        paint.textSize = 28f
+        paint.color = Color.WHITE
+        canvas.drawText("Zorluk Seviyesi: [ ${SettingsManager.currentDifficulty.label} ] (Değiştirmek için dokun)", 80f, 200f, paint)
+        canvas.drawText("Ses Efektleri: [ ${if (SettingsManager.soundEnabled) "AÇIK" else "KAPALI"} ]", 80f, 260f, paint)
+        canvas.drawText("Müzik: [ ${if (SettingsManager.musicEnabled) "AÇIK" else "KAPALI"} ]", 80f, 320f, paint)
+
+        paint.color = Color.rgb(180, 50, 50)
+        canvas.drawText("< ANA MENÜYE DÖN", 80f, 420f, paint)
     }
 
     private fun drawGameplay(canvas: Canvas) {
@@ -151,14 +167,12 @@ class GameSurfaceView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
 
         touchController.draw(canvas, paint)
 
-        // Oyuncu Can Barı
         paint.color = Color.RED
         canvas.drawRect(40f, 30f, 240f, 55f, paint)
         paint.color = Color.GREEN
         val currentHealthWidth = 200f * (player.health.toFloat() / player.maxHealth)
         canvas.drawRect(40f, 30f, 40f.coerceAtLeast(40f + currentHealthWidth), 55f, paint)
 
-        // Düşman Can Barı
         val chapter = ChapterManager.getCurrentChapter()
         paint.color = Color.RED
         canvas.drawRect(screenWidth - 240f, 30f, screenWidth - 40f, 55f, paint)
@@ -171,7 +185,6 @@ class GameSurfaceView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
         canvas.drawText(chapter.title, 40f, 22f, paint)
         canvas.drawText(chapter.enemyName, screenWidth - 240f, 22f, paint)
 
-        // Diyalog Balonu / Bilgi Gösterimi (Örn: Bölüm başı diyalog)
         val dialogue = DialogueManager.getIntroDialogue(chapter.id)
         paint.color = Color.argb(200, 0, 0, 0)
         canvas.drawRect(40f, screenHeight - 120f, screenWidth - 40f, screenHeight - 60f, paint)
@@ -199,20 +212,48 @@ class GameSurfaceView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (currentState == GameState.MAIN_MENU) {
-            if (event.action == MotionEvent.ACTION_DOWN) {
-                currentState = GameState.PLAYING
+        if (event.action == MotionEvent.ACTION_DOWN) {
+            val x = event.x
+            val y = event.y
+
+            when (currentState) {
+                GameState.MAIN_MENU -> {
+                    if (y in 210f..250f) {
+                        ChapterManager.reset()
+                        player.health = 100
+                        player.x = 100f
+                        initNewChapter()
+                        currentState = GameState.PLAYING
+                    } else if (y in 280f..320f) {
+                        currentState = GameState.SETTINGS
+                    } else if (y in 350f..390f) {
+                        (context as? android.app.Activity)?.finish()
+                    }
+                }
+                GameState.SETTINGS -> {
+                    if (y in 170f..210f) {
+                        SettingsManager.cycleDifficulty()
+                    } else if (y in 230f..270f) {
+                        SettingsManager.toggleSound()
+                    } else if (y in 290f..330f) {
+                        SettingsManager.toggleMusic()
+                    } else if (y in 390f..430f) {
+                        currentState = GameState.MAIN_MENU
+                    }
+                }
+                GameState.PLAYING -> {
+                    touchController.handleTouchEvent(event, screenWidth, screenHeight)
+                }
+                GameState.GAME_OVER, GameState.VICTORY -> {
+                    ChapterManager.reset()
+                    player.health = 100
+                    player.x = 100f
+                    initNewChapter()
+                    currentState = GameState.PLAYING
+                }
             }
         } else if (currentState == GameState.PLAYING) {
             touchController.handleTouchEvent(event, screenWidth, screenHeight)
-        } else if (currentState == GameState.GAME_OVER || currentState == GameState.VICTORY) {
-            if (event.action == MotionEvent.ACTION_DOWN) {
-                ChapterManager.reset()
-                player.health = 100
-                player.x = 100f
-                initNewChapter()
-                currentState = GameState.PLAYING
-            }
         }
         return true
     }
