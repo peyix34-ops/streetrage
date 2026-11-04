@@ -18,8 +18,8 @@ class GameSurfaceView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
 
     private val paint = Paint()
 
-    // Oyun Bileşenleri
     private lateinit var player: Player
+    private lateinit var enemy: Enemy
     private val touchController = TouchController()
 
     init {
@@ -38,8 +38,8 @@ class GameSurfaceView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
         screenWidth = width.toFloat()
         screenHeight = height.toFloat()
 
-        // Oyuncuyu zemin seviyesine konumlandır
         player = Player(100f, screenHeight * 0.48f)
+        enemy = Enemy(screenWidth - 300f, screenHeight * 0.48f)
     }
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
@@ -50,6 +50,13 @@ class GameSurfaceView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
         when (currentState) {
             GameState.MAIN_MENU -> {}
             GameState.PLAYING -> {
+                if (touchController.isPunchPressed) {
+                    player.punch()
+                }
+                if (touchController.isKickPressed) {
+                    player.kick()
+                }
+
                 var dx = 0f
                 if (touchController.isLeftPressed) {
                     dx = -6f
@@ -59,9 +66,31 @@ class GameSurfaceView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
                     dx = 6f
                     player.isFacingRight = true
                 }
+
                 player.move(dx, screenWidth)
                 player.update()
+
+                enemy.update(player.x, screenWidth)
+
+                // Çarpışma ve Vuruş Algılama (Hitbox / Hurtbox)
+                if ((player.currentState == PlayerState.PUNCH || player.currentState == PlayerState.KICK) &&
+                    player.attackBox.intersect(enemy.hurtBox)) {
+                    if (enemy.health > 0) {
+                        enemy.health -= if (player.currentState == PlayerState.PUNCH) 5 else 8
+                        if (enemy.health < 0) enemy.health = 0
+                    }
+                }
+
+                // Düşmanın oyuncuya saldırı teması
+                if (enemy.currentState == EnemyState.ATTACKING && enemy.attackBox.intersect(player.hurtBox)) {
+                    player.health -= 1
+                    if (player.health < 0) {
+                        player.health = 0
+                        currentState = GameState.GAME_OVER
+                    }
+                }
             }
+            GameState.GAME_OVER, GameState.VICTORY -> {}
             else -> {}
         }
     }
@@ -72,6 +101,8 @@ class GameSurfaceView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
         when (currentState) {
             GameState.MAIN_MENU -> drawMainMenu(canvas)
             GameState.PLAYING -> drawGameplay(canvas)
+            GameState.GAME_OVER -> drawGameOver(canvas)
+            GameState.VICTORY -> drawVictory(canvas)
             else -> drawMainMenu(canvas)
         }
     }
@@ -94,25 +125,46 @@ class GameSurfaceView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
     }
 
     private fun drawGameplay(canvas: Canvas) {
-        // Arka plan atmosferi
         BackgroundRenderer.drawBackAlleysBackground(canvas, screenWidth, screenHeight, paint)
 
-        // Oyuncu karakteri
         player.draw(canvas, paint)
+        enemy.draw(canvas, paint)
 
-        // Dokunmatik Kontroller (HUD)
         touchController.draw(canvas, paint)
 
-        // Oyuncu Sağlık Göstergesi (Can Barı)
+        // Oyuncu Can Barı
         paint.color = Color.RED
         canvas.drawRect(40f, 30f, 240f, 55f, paint)
         paint.color = Color.GREEN
         val currentHealthWidth = 200f * (player.health.toFloat() / player.maxHealth)
-        canvas.drawRect(40f, 30f, 40f + currentHealthWidth, 55f, paint)
+        canvas.drawRect(40f, 30f, 40f.coerceAtLeast(40f + currentHealthWidth), 55f, paint)
+
+        // Düşman Can Barı
+        paint.color = Color.RED
+        canvas.drawRect(screenWidth - 240f, 30f, screenWidth - 40f, 55f, paint)
+        paint.color = Color.rgb(200, 50, 50)
+        val enemyHealthWidth = 200f * (enemy.health.toFloat() / enemy.maxHealth)
+        canvas.drawRect(screenWidth - 240f, 30f, (screenWidth - 240f) + enemyHealthWidth, 55f, paint)
 
         paint.color = Color.WHITE
         paint.textSize = 18f
         canvas.drawText("BÖLÜM 1: ARKA SOKAKLAR", 40f, 22f, paint)
+        canvas.drawText("MAFYA TETİKÇİSİ", screenWidth - 240f, 22f, paint)
+    }
+
+    private fun drawGameOver(canvas: Canvas) {
+        paint.color = Color.RED
+        paint.textSize = 64f
+        canvas.drawText("OYUN BİTTİ", screenWidth / 2f - 160f, screenHeight / 2f, paint)
+        paint.textSize = 24f
+        paint.color = Color.WHITE
+        canvas.drawText("Yeniden başlamak için dokun.", screenWidth / 2f - 140f, screenHeight / 2f + 50f, paint)
+    }
+
+    private fun drawVictory(canvas: Canvas) {
+        paint.color = Color.GREEN
+        paint.textSize = 64f
+        canvas.drawText("BÖLÜM TAMAMLANDI!", screenWidth / 2f - 220f, screenHeight / 2f, paint)
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -122,6 +174,14 @@ class GameSurfaceView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
             }
         } else if (currentState == GameState.PLAYING) {
             touchController.handleTouchEvent(event, screenWidth, screenHeight)
+        } else if (currentState == GameState.GAME_OVER) {
+            if (event.action == MotionEvent.ACTION_DOWN) {
+                player.health = 100
+                enemy.health = 60
+                player.x = 100f
+                enemy.x = screenWidth - 300f
+                currentState = GameState.PLAYING
+            }
         }
         return true
     }
